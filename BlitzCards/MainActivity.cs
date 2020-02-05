@@ -3,6 +3,12 @@ using Android.OS;
 using Android.Support.V7.App;
 using Android.Widget;
 using BlitzCards.Lang;
+using System.IO;
+using System.Net;
+using System.Threading.Tasks;
+using System.Linq;
+using System.Collections;
+using System.Collections.Generic;
 
 namespace BlitzCards
 {
@@ -14,24 +20,12 @@ namespace BlitzCards
         private const byte ACRONYM_INDEX = 0;
         private const byte ACRONYM_DEFINITION_INDEX = 1;
         private const int DEFAULT_VOCAB_POS = 0;
+        private const string NADWORNY_URL = "https://www.nadworny.com/websvc/presidents.txt";
+        private const int COLUMNS = 15;
 
-        // Vocab & Definition
-        readonly string[,] vocab = new string[,] {
-            { "API (Application Programming Interface)", "Code that allows two software programs to communicate with each other." },
-            { "HTTP (HyperText Transfer Protocol)", "Standard protocol for settting request and responses over the internet." },
-            { "SSL (Secure Socket Protocol)", "Point to Point encryption." },
-            { "SOAP (Simple Object Access Protocol)", " Provides simplified communications through proxies and firewalls. It is also used to package message request. " },
-            { "REST (REpresentational State Transfer)", "A type of API that leverages HTTP/HTTPS exclusively to transfer hypermedia (hypertext and other formats) over the internet." },
-            { "XML (eXtensible Markup Language)", "Use to encode all information passed between machines using the web service." },
-            { "RSS (Rich Site Summary)", "A web feed that allows applications to get information about a aserver or service in a standardized format." },
-            { "JSON (JavaScript Object Notation)", "A lightweight self-describing data-interchange format." },
-            { "W3C (World Wide Web Consortium)", "An international community that develops standards for the web together." },
-            { "Synchronous", "Client us 'blocked' until the server respondes or times out. Run in a linear fashion." },
-            { "Asynchronous", "Server works in the background while waitingr for a responce." },
-            { "Stateless", "No built-in transaction support, private (token) and supports load balancing Caching." },
-            { "Stateful", "Remebers who you are between aapi calls. Harder to scale." }
-        };
-
+        // Collection of presidents structured as a 2d array
+        string[,] presidents;
+        
         // Index to manage position in vocab array
         private IndexInt VCardPos; 
         // Determines card visibility state
@@ -44,17 +38,102 @@ namespace BlitzCards
             base.OnCreate(savedInstanceState);
             Xamarin.Essentials.Platform.Init(this, savedInstanceState);
             // Set our view from the "main" layout resource
-            SetContentView(Resource.Layout.activity_main);
+            SetContentView(Resource.Layout.activity_main);                       
+        }
 
+        protected async override void OnStart()
+        {
+            base.OnStart();
+
+            // refs to ui textviews
+            var frontDescription = FindViewById<TextView>(Resource.Id.frontDescription);
+            var backDescription = FindViewById<TextView>(Resource.Id.backDescription);
+
+            await Task.Run(() =>
+            {
+                WebClient client = new WebClient();
+                client.Headers.Add("user-agent", "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.2; .NET CLR 1.0.3705;)");
+
+                Stream dataStream = client.OpenRead(NADWORNY_URL);
+                var reader = new StreamReader(dataStream);
+
+                string data = reader.ReadToEnd();
+
+                string[] chunks = data.Split('\t', '\n');
+
+                //string[] finalChunks = chunks.TakeWhile(chunk => string.IsNullOrEmpty(chunk) == true).ToArray();
+
+                string[] finalChunks = chunks.Take(675).ToArray();
+
+                //int endingIndicesToRemove = 0;
+
+                //for (int i = 0; i < chunks.Length; i++)
+                //{
+                //    if (string.IsNullOrWhiteSpace(chunks[i]))
+                //    {
+                //        for (int index = i; index < chunks.Length; index++)
+                //        {
+                //            if (!string.IsNullOrWhiteSpace(chunks[index]))
+                //            {
+                //                // if a string wasn't empty, null, spaces then reset
+                //                endingIndicesToRemove = 0;
+                //                break;
+                //            }
+                //            endingIndicesToRemove++;
+                //        }
+
+                //        // checking to see if we have indexes from this index to remove
+                //        if (endingIndicesToRemove != 0)
+                //        {
+                //            IEnumerable<string> query = chunks.TakeWhile(chunk => string.IsNullOrWhiteSpace(chunk) != true);
+                //            break;
+                //        }
+                //    }
+                //}
+
+                // Calucating the number of rows
+                int rowNumbers = finalChunks.Length / COLUMNS;
+
+                // Instantiating our declaration to an actual array
+                presidents = new string[rowNumbers - 1, 2];
+
+                // Variable used for offseting to get specific columns
+                int presidentOffset = 15;
+
+                // Iterates through the strings based off the number of rows
+                for (int i = 1; i < rowNumbers; i++)
+                {
+                    if (i == 0)
+                    {
+                        // Sets the title text
+                        RunOnUiThread(() =>
+                        {
+                            var test = finalChunks[presidentOffset];
+                            var test2 = finalChunks[1 + presidentOffset];
+
+                            frontDescription.Text = $"Front: {finalChunks[0]}";
+                            backDescription.Text = $"Back: {finalChunks[1]}";
+                        });
+                    }
+                    else
+                    {
+                        // Assigning the indexed data into our 2d array
+                        presidents[i - 1, 0] = finalChunks[presidentOffset];
+                        presidents[i - 1, 1] = finalChunks[1 + presidentOffset];
+                        // Applying a offset for our next iteration, so we get different columns
+                        presidentOffset += COLUMNS;
+                    }
+                }
+            });
             // We divide by two because in our case our array is actually half as long as it says due to how we are using it
-            VCardPos = new IndexInt(DEFAULT_VOCAB_POS, vocab.Length / 2 - 1);
+            VCardPos = new IndexInt(DEFAULT_VOCAB_POS, presidents.Length / 2 - 1);
 
-            questionNum       = FindViewById<TextView>(Resource.Id.questionNum);
-            cardTextView      = FindViewById<TextView>(Resource.Id.cardTextView);
-            cardTextView.Text = vocab[VCardPos.Value, VCardPos.Value];
+            questionNum = FindViewById<TextView>(Resource.Id.questionNum);
+            cardTextView = FindViewById<TextView>(Resource.Id.cardTextView);
+            cardTextView.Text = presidents[VCardPos.Value, VCardPos.Value];
 
             NextCardEvent += UpdateQuestionHeader;
-            NextCardEvent += UpdateVocabCard;            
+            NextCardEvent += UpdateVocabCard;
 
             // Handles back button clicks
             FindViewById<ImageButton>(Resource.Id.backBtn).Click += delegate
@@ -76,17 +155,17 @@ namespace BlitzCards
                 if (isAwnserVisible)
                 {
                     // hide the answer
-                    cardTextView.Text = vocab[VCardPos.Value, ACRONYM_INDEX];                    
+                    cardTextView.Text = presidents[VCardPos.Value, ACRONYM_INDEX];
                 }
                 else
                 {
                     // show the answer
-                    cardTextView.Text = vocab[VCardPos.Value, ACRONYM_DEFINITION_INDEX];
+                    cardTextView.Text = presidents[VCardPos.Value, ACRONYM_DEFINITION_INDEX];
                 }
 
                 // inverts flag
                 isAwnserVisible = !isAwnserVisible;
-            };           
+            };
         }
 
         /// <summary>
@@ -102,7 +181,7 @@ namespace BlitzCards
         /// </summary>
         private void UpdateVocabCard()
         {
-            cardTextView.Text = vocab[VCardPos.Value, ACRONYM_INDEX];
+            cardTextView.Text = presidents[VCardPos.Value, ACRONYM_INDEX];
             isAwnserVisible = false;
         }
     }
